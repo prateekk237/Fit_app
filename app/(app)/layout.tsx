@@ -12,7 +12,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <Providers>
       <OfflineBanner />
       <div className="relative mx-auto min-h-screen w-full max-w-xl pb-[80px] md:max-w-3xl">
-        <main className="px-4 pt-6">{children}</main>
+        <main className="fit-fade-in px-4 pt-6">{children}</main>
         <BottomNav />
       </div>
     </Providers>

@@ -26,6 +26,7 @@ import { RestTimer } from "@/components/workout/RestTimer";
 import { RpeSlider } from "@/components/workout/RpeSlider";
 import type { SetEntry } from "@/components/workout/SetTracker";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
 
 interface WorkoutDetail {
   id: number;
@@ -177,7 +178,11 @@ export default function WorkoutRunnerPage() {
       router.refresh();
     } catch (err) {
       setFinishing(false);
-      alert((err as Error).message);
+      toast({
+        variant: "destructive",
+        title: "Couldn't save workout",
+        description: (err as Error).message,
+      });
     }
   }
 

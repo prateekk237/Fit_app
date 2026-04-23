@@ -64,4 +64,40 @@
     padding: env(safe-area-inset-top) env(safe-area-inset-right)
       env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
+  /* 150ms tap feedback on every button/link. */
+  button,
+  a[role="button"],
+  [role="button"],
+  a {
+    transition:
+      transform 150ms ease-out,
+      opacity 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+}
+
+@layer utilities {
+  /* Subtle fade + rise entrance for cards and page content. Honours
+     prefers-reduced-motion automatically. */
+  .fit-fade-in {
+    animation: fit-fade-in 220ms ease-out both;
+  }
+  @keyframes fit-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fit-fade-in {
+      animation: none;
+    }
+    * {
+      transition-duration: 0ms !important;
+    }
+  }
 }

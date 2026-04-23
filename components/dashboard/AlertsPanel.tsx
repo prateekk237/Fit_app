@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
 
 interface PendingAlert {
   id: string;
@@ -96,7 +97,11 @@ export function AlertsPanel() {
       await postSubscription(sub);
     } catch (err) {
       console.error("[push subscribe]", err);
-      alert((err as Error).message);
+      toast({
+        variant: "destructive",
+        title: "Couldn't enable notifications",
+        description: (err as Error).message,
+      });
     } finally {
       setSubscribing(false);
     }
