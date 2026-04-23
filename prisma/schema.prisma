@@ -1,9 +1,254 @@
-// Phase 0 scaffold — empty schema. Phase 1 adds 13 tables per master plan.
+// Fit PWA — Prisma schema (Phase 1)
+//
+// Notes on Postgres features Prisma can't fully model:
+//  - pgcrypto + pg_trgm extensions are enabled via the `extensions` datasource block.
+//  - `foods.search_tokens` is a TSVECTOR GENERATED ALWAYS AS column — declared here
+//    as Unsupported("tsvector") and realized by the init migration SQL.
+//  - The `daily_totals` materialized view is created at the end of the init migration.
+//  - GIN indexes (including pg_trgm) live in the init migration SQL as raw statements.
+
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgcrypto, pg_trgm]
+}
+
+model User {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String
+  email                String?  @unique
+  pinHash              String   @map("pin_hash")
+  heightCm             Decimal  @map("height_cm")            @db.Decimal(5, 1)
+  currentWeightKg      Decimal  @map("current_weight_kg")    @db.Decimal(5, 2)
+  targetWeightKg       Decimal  @map("target_weight_kg")     @db.Decimal(5, 2)
+  birthDate            DateTime @map("birth_date")           @db.Date
+  dietPreference       String   @map("diet_preference") // 'veg' | 'non-veg' | 'mixed'
+  dailyCalorieTarget   Int      @default(1900) @map("daily_calorie_target")
+  dailyProteinTargetG  Int      @default(170)  @map("daily_protein_target_g")
+  dailyCarbsTargetG    Int      @default(180)  @map("daily_carbs_target_g")
+  dailyFatTargetG      Int      @default(50)   @map("daily_fat_target_g")
+  dailyWaterTargetMl   Int      @default(3750) @map("daily_water_target_ml")
+  timezone             String   @default("Asia/Kolkata")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  foodLogs          FoodLog[]
+  waterLogs         WaterLog[]
+  weightLogs        WeightLog[]
+  workoutLogs       WorkoutLog[]
+  goals             Goal[]
+  alertsSent        AlertSent[]
+  pushSubscriptions PushSubscription[]
+  foodCorrections   FoodCorrection[]
+
+  @@map("users")
+}
+
+model Food {
+  id                 Int      @id @default(autoincrement())
+  name               String
+  nameHindi          String?  @map("name_hindi")
+  category           String
+  isVeg              Boolean  @map("is_veg")
+  caloriesPer100g    Decimal  @map("calories_per_100g") @db.Decimal(6, 2)
+  proteinG           Decimal  @map("protein_g")         @db.Decimal(5, 2)
+  carbsG             Decimal  @map("carbs_g")           @db.Decimal(5, 2)
+  fatG               Decimal  @map("fat_g")             @db.Decimal(5, 2)
+  fiberG             Decimal? @map("fiber_g")           @db.Decimal(5, 2)
+  servingSizeG       Decimal  @map("serving_size_g")    @db.Decimal(6, 2)
+  servingDescription String?  @map("serving_description")
+  source             String?  @default("IFCT-2017")
+  confidence         String?  @default("high")
+
+  // Realized in the init migration as a GENERATED ALWAYS TSVECTOR column.
+  searchTokens       Unsupported("tsvector")? @map("search_tokens")
+
+  foodLogs FoodLog[]
+
+  @@index([isVeg])
+  @@index([category])
+  @@map("foods")
+}
+
+model Meal {
+  id              Int     @id @default(autoincrement())
+  dayOfWeek       Int     @map("day_of_week") // 1 = Monday … 7 = Sunday
+  mealType        String  @map("meal_type")
+  isVegOption     Boolean @map("is_veg_option")
+  name            String
+  description     String?
+  foodsJson       Json    @map("foods_json")
+  targetCalories  Int?    @map("target_calories")
+  targetProteinG  Int?    @map("target_protein_g")
+
+  @@index([dayOfWeek, mealType], map: "idx_meals_day")
+  @@map("meals")
+}
+
+model FoodLog {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  loggedAt      DateTime @default(now()) @map("logged_at") @db.Timestamptz(6)
+  logDate       DateTime @map("log_date") @db.Date
+  foodId        Int?     @map("food_id")
+  foodName      String   @map("food_name")
+  portionG      Decimal  @map("portion_g")  @db.Decimal(6, 2)
+  calories      Decimal                    @db.Decimal(6, 2)
+  proteinG      Decimal  @map("protein_g") @db.Decimal(5, 2)
+  carbsG        Decimal  @map("carbs_g")   @db.Decimal(5, 2)
+  fatG          Decimal  @map("fat_g")     @db.Decimal(5, 2)
+  fiberG        Decimal? @map("fiber_g")   @db.Decimal(5, 2)
+  source        String  // 'manual' | 'photo' | 'meal_plan' | 'barcode'
+  photoUrl      String?  @map("photo_url")
+  aiConfidence  Decimal? @map("ai_confidence") @db.Decimal(3, 2)
+  aiRawJson     Json?    @map("ai_raw_json")
+  mealType      String?  @map("meal_type")
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  food Food? @relation(fields: [foodId], references: [id])
+
+  @@index([userId, logDate(sort: Desc)], map: "idx_food_logs_user_date")
+  @@map("food_logs")
+}
+
+model WaterLog {
+  id       BigInt   @id @default(autoincrement())
+  userId   String   @map("user_id") @db.Uuid
+  loggedAt DateTime @default(now()) @map("logged_at") @db.Timestamptz(6)
+  logDate  DateTime @map("log_date") @db.Date
+  amountMl Int      @map("amount_ml")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, logDate(sort: Desc)], map: "idx_water_logs_user_date")
+  @@map("water_logs")
+}
+
+model WeightLog {
+  id           BigInt   @id @default(autoincrement())
+  userId       String   @map("user_id") @db.Uuid
+  loggedAt     DateTime @default(now()) @map("logged_at") @db.Timestamptz(6)
+  logDate      DateTime @map("log_date") @db.Date
+  weightKg     Decimal  @map("weight_kg")    @db.Decimal(5, 2)
+  waistCm      Decimal? @map("waist_cm")     @db.Decimal(5, 2)
+  chestCm      Decimal? @map("chest_cm")     @db.Decimal(5, 2)
+  hipCm        Decimal? @map("hip_cm")       @db.Decimal(5, 2)
+  bodyFatPct   Decimal? @map("body_fat_pct") @db.Decimal(4, 1)
+  notes        String?
+  photoUrl     String?  @map("photo_url")
+  facePhotoUrl String?  @map("face_photo_url")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, logDate], map: "uniq_weight_day")
+  @@map("weight_logs")
+}
+
+model Workout {
+  id            Int     @id @default(autoincrement())
+  dayNumber     Int     @map("day_number") // 1 = Monday … 7 = Sunday
+  name          String
+  category      String  // 'push' | 'pull' | 'legs' | 'hiit' | 'fullbody' | 'cardio' | 'rest'
+  exercisesJson Json    @map("exercises_json")
+  durationMin   Int     @map("duration_min")
+  description   String?
+
+  workoutLogs WorkoutLog[]
+
+  @@map("workouts")
+}
+
+model Exercise {
+  id              Int      @id @default(autoincrement())
+  name            String
+  slug            String   @unique
+  category        String
+  muscleGroups    String[] @map("muscle_groups")
+  equipmentNeeded String[] @map("equipment_needed")
+  difficulty      String?  // 'beginner' | 'intermediate' | 'advanced'
+  imageUrl        String?  @map("image_url")
+  youtubeId       String?  @map("youtube_id")
+  attribution     String?
+  instructions    String
+  formCue         String?  @map("form_cue")
+  commonMistakes  String?  @map("common_mistakes")
+
+  @@map("exercises")
+}
+
+model WorkoutLog {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                 String    @map("user_id") @db.Uuid
+  workoutId              Int?      @map("workout_id")
+  startedAt              DateTime  @map("started_at")   @db.Timestamptz(6)
+  completedAt            DateTime? @map("completed_at") @db.Timestamptz(6)
+  logDate                DateTime  @map("log_date")     @db.Date
+  exercisesCompletedJson Json      @map("exercises_completed_json")
+  durationMin            Int?      @map("duration_min")
+  rpeOverall             Int?      @map("rpe_overall")
+  notes                  String?
+
+  user    User     @relation(fields: [userId],    references: [id], onDelete: Cascade)
+  workout Workout? @relation(fields: [workoutId], references: [id])
+
+  @@map("workout_logs")
+}
+
+model Goal {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  weekNumber     Int      @map("week_number")
+  weekStartDate  DateTime @map("week_start_date") @db.Date
+  targetWeightKg Decimal? @map("target_weight_kg") @db.Decimal(5, 2)
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("goals")
+}
+
+model AlertSent {
+  id          BigInt    @id @default(autoincrement())
+  userId      String    @map("user_id") @db.Uuid
+  sentAt      DateTime  @default(now()) @map("sent_at") @db.Timestamptz(6)
+  type        String
+  message     String
+  dataJson    Json?     @map("data_json")
+  dismissedAt DateTime? @map("dismissed_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("alerts_sent")
+}
+
+model PushSubscription {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  endpoint   String   @unique
+  p256dhKey  String   @map("p256dh_key")
+  authKey    String   @map("auth_key")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("push_subscriptions")
+}
+
+model FoodCorrection {
+  id              BigInt   @id @default(autoincrement())
+  userId          String   @map("user_id") @db.Uuid
+  aiGuess         String   @map("ai_guess")
+  userCorrection  String   @map("user_correction")
+  photoUrl        String?  @map("photo_url")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("food_corrections")
 }
