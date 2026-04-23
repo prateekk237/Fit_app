@@ -1,0 +1,9 @@
+// Phase 0 scaffold — empty schema. Phase 1 adds 13 tables per master plan.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

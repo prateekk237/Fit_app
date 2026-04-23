@@ -1,0 +1,26 @@
+# LOCAL DEV ONLY — production uses docker-compose.prod.yml (Phase 16).
+# App runs natively via `pnpm dev`; only Postgres is containerized.
+name: fit-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fit-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fit
+      POSTGRES_PASSWORD: fit
+      POSTGRES_DB: fit
+    ports:
+      - "5432:5432"
+    volumes:
+      - fit_pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fit -d fit"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  fit_pgdata_dev:
+    name: fit_pgdata_dev
