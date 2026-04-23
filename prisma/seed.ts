@@ -6,10 +6,13 @@
 // Invoke with: pnpm db:seed  (aliased to `prisma db seed` in package.json)
 
 import { PrismaClient, Prisma } from "@prisma/client";
+import bcrypt from "bcryptjs";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const prisma = new PrismaClient();
+
+const DEFAULT_PIN = "123456";
 
 type FoodSeed = {
   name: string;
@@ -210,12 +213,42 @@ async function seedWorkouts() {
   console.log(`  ✓ workouts: ${count}`);
 }
 
+async function seedUser() {
+  const email = "prateek@fit.local";
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    console.log(`→ User already exists (id=${existing.id}) — leaving PIN untouched.`);
+    return;
+  }
+  const pinHash = await bcrypt.hash(DEFAULT_PIN, 10);
+  const user = await prisma.user.create({
+    data: {
+      name: "Prateek",
+      email,
+      pinHash,
+      heightCm: new Prisma.Decimal(172),
+      currentWeightKg: new Prisma.Decimal(92),
+      targetWeightKg: new Prisma.Decimal(80),
+      birthDate: new Date("1990-09-15"),
+      dietPreference: "mixed",
+      dailyCalorieTarget: 1900,
+      dailyProteinTargetG: 170,
+      dailyCarbsTargetG: 180,
+      dailyFatTargetG: 50,
+      dailyWaterTargetMl: 3750,
+      timezone: "Asia/Kolkata",
+    },
+  });
+  console.log(`→ Created user id=${user.id} name=${user.name} pin=${DEFAULT_PIN}`);
+}
+
 async function main() {
   console.log("Seeding Fit database…");
   await seedFoods();
   await seedExercises();
   await seedMeals();
   await seedWorkouts();
+  await seedUser();
   console.log("Done.");
 }
 

@@ -1,11 +1,18 @@
+import { redirect } from "next/navigation";
 import { BottomNav } from "@/components/BottomNav";
+import { Providers } from "@/components/Providers";
+import { getSession } from "@/lib/auth";
 
-// Phase 2 will add JWT verification here and redirect to /login when absent.
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
   return (
-    <div className="relative mx-auto min-h-screen w-full max-w-xl pb-[80px] md:max-w-3xl">
-      <main className="px-4 pt-6">{children}</main>
-      <BottomNav />
-    </div>
+    <Providers>
+      <div className="relative mx-auto min-h-screen w-full max-w-xl pb-[80px] md:max-w-3xl">
+        <main className="px-4 pt-6">{children}</main>
+        <BottomNav />
+      </div>
+    </Providers>
   );
 }
