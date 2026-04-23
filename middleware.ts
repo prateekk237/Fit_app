@@ -5,10 +5,18 @@ import { AUTH_COOKIE, verifySession } from "@/lib/auth-edge";
 const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/health"];
 
 function isPublic(pathname: string): boolean {
-  if (pathname.startsWith("/_next") || pathname.startsWith("/icons") ||
-      pathname.startsWith("/exercises") || pathname === "/favicon.ico" ||
-      pathname === "/manifest.json" || pathname === "/sw.js" ||
-      pathname.startsWith("/workbox-")) {
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/icons") ||
+    pathname.startsWith("/exercises") ||
+    pathname === "/favicon.ico" ||
+    pathname === "/favicon.png" ||
+    pathname === "/manifest.json" ||
+    pathname === "/sw.js" ||
+    pathname === "/push-handler.js" ||
+    pathname.startsWith("/workbox-") ||
+    pathname.startsWith("/worker-")
+  ) {
     return true;
   }
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
@@ -45,6 +53,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|icons|exercises|manifest.json|sw.js|workbox-.*).*)",
+    "/((?!_next/static|_next/image|favicon.ico|favicon.png|icons|exercises|manifest.json|sw.js|push-handler.js|workbox-.*|worker-.*).*)",
   ],
 };
