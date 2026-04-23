@@ -18,6 +18,8 @@ export async function GET() {
       userId: user.id,
       dismissedAt: null,
       sentAt: { gte: start },
+      // Hide internal cache rows (e.g. WEEKLY_DIGEST stored here for reuse).
+      NOT: { type: { startsWith: "WEEKLY_DIGEST" } },
     },
     orderBy: { sentAt: "desc" },
     take: 50,

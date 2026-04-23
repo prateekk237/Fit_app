@@ -15,6 +15,7 @@ import { StreakBadge } from "@/components/dashboard/StreakBadge";
 import { WeightTrendCard } from "@/components/dashboard/WeightTrendCard";
 import { DashboardSkeleton } from "@/components/dashboard/DashboardSkeleton";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
+import { WeeklyInsights } from "@/components/dashboard/WeeklyInsights";
 
 interface DashboardData {
   date: string;
@@ -151,6 +152,8 @@ export default function DashboardPage() {
         lastLoggedDate={data.weight.lastLoggedDate}
         sparkline={data.weight.sparkline}
       />
+
+      <WeeklyInsights />
 
       <Card>
         <CardHeader>

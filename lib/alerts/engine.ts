@@ -74,6 +74,7 @@ export async function evaluateForUser(
     }
     // Dedupe: don't fire the same (user, dedupeKey, logDate) twice in one local day.
     const dedupeKey = hit.dedupeKey ?? hit.key;
+    if (dedupeKey.startsWith("WEEKLY_DIGEST")) continue; // reserved for cache
     const alreadySent = await prisma.alertSent.findFirst({
       where: {
         userId,
