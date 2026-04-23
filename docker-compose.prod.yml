@@ -1,0 +1,135 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Fit PWA — production compose for Hostinger KVM 1 (4 GB, 2 vCPU) running
+# alongside AssetShield. Total Fit RAM footprint ≤ 750 MB (app 500 +
+# Postgres 250). All ports bound to 127.0.0.1 — Nginx reverse-proxies
+# them via the fit.assetshield.co.in subdomain config.
+#
+# Deploy:
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml run --rm fit-migrate
+#   docker compose -f docker-compose.prod.yml up -d fit-app
+#
+# NEVER run the Next build on the VPS — GitHub Actions pushes the image
+# to GHCR and this file pulls it.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: fit
+
+services:
+  fit-postgres:
+    image: postgres:16-alpine
+    container_name: fit-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # KVM 1-safe Postgres tuning.
+    command: >
+      postgres
+      -c shared_buffers=64MB
+      -c effective_cache_size=128MB
+      -c maintenance_work_mem=16MB
+      -c work_mem=4MB
+      -c max_connections=20
+      -c wal_level=replica
+      -c random_page_cost=1.1
+    volumes:
+      - fit_pgdata:/var/lib/postgresql/data
+      - /home/deploy/apps/fit/backups:/backups
+    ports:
+      - "127.0.0.1:5433:5432"
+    networks: [fit-network]
+    mem_limit: 250m
+    mem_reservation: 200m
+    memswap_limit: 250m
+    cpus: "0.5"
+    oom_score_adj: 500
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+
+  fit-app:
+    image: ghcr.io/${GITHUB_USER}/fit-pwa:${IMAGE_TAG:-latest}
+    container_name: fit-app
+    restart: unless-stopped
+    depends_on:
+      fit-postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@fit-postgres:5432/${POSTGRES_DB}?connection_limit=5&pool_timeout=10
+      JWT_SECRET: ${JWT_SECRET}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT}
+      NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      NEXT_PUBLIC_APP_URL: https://fit.assetshield.co.in
+      NODE_OPTIONS: "--max-old-space-size=400"
+      UPLOADS_DIR: /app/uploads
+      # Turn on the in-process alerts cron once the app is live.
+      FIT_ENABLE_CRON: "true"
+    volumes:
+      - fit_uploads:/app/uploads
+    ports:
+      - "127.0.0.1:3100:3000"
+    networks: [fit-network]
+    mem_limit: 500m
+    mem_reservation: 400m
+    memswap_limit: 500m
+    cpus: "0.7"
+    # Fit dies first under RAM pressure — AssetShield > Fit.
+    oom_score_adj: 500
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+
+  # One-shot migration runner. Invoke with:
+  #   docker compose -f docker-compose.prod.yml run --rm fit-migrate
+  fit-migrate:
+    image: ghcr.io/${GITHUB_USER}/fit-pwa:${IMAGE_TAG:-latest}
+    container_name: fit-migrate
+    depends_on:
+      fit-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@fit-postgres:5432/${POSTGRES_DB}
+    networks: [fit-network]
+    mem_limit: 300m
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        export PATH="/app/node_modules/.bin:$$PATH"
+        prisma migrate deploy
+        # Seed is idempotent — upserts foods/exercises/meals/workouts + Prateek
+        # user by email uniqueness — but any failure is tolerated so deploys
+        # are never blocked on it.
+        prisma db seed || echo 'Seed skipped'
+    restart: "no"
+
+volumes:
+  fit_pgdata:
+    name: fit_pgdata
+  fit_uploads:
+    name: fit_uploads
+
+networks:
+  fit-network:
+    name: fit-network
+    driver: bridge
