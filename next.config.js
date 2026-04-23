@@ -4,6 +4,9 @@ const withPWA = require("next-pwa")({
   register: true,
   skipWaiting: true,
   disable: process.env.NODE_ENV === "development",
+  // Our Web Push handlers live in public/push-handler.js and get pulled
+  // into the Workbox-generated service worker via importScripts.
+  importScripts: ["/push-handler.js"],
 });
 
 const nextConfig = {
@@ -11,7 +14,8 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   experimental: {
-    serverComponentsExternalPackages: ["sharp"],
+    serverComponentsExternalPackages: ["sharp", "web-push", "node-cron"],
+    instrumentationHook: true,
   },
   images: {
     remotePatterns: [
@@ -20,6 +24,19 @@ const nextConfig = {
       { protocol: "https", hostname: "wger.de" },
       { protocol: "https", hostname: "cdn.wger.de" },
     ],
+  },
+  // instrumentation.ts is compiled for both Node and Edge. Our alerts
+  // cron module pulls in node-cron and web-push (both Node-only). Mark
+  // them external so Edge builds don't try to resolve native deps.
+  webpack: (config, { isServer, nextRuntime }) => {
+    if (isServer && nextRuntime === "edge") {
+      config.externals = [
+        ...(config.externals || []),
+        "web-push",
+        "node-cron",
+      ];
+    }
+    return config;
   },
 };
 

@@ -14,6 +14,7 @@ import {
 import { StreakBadge } from "@/components/dashboard/StreakBadge";
 import { WeightTrendCard } from "@/components/dashboard/WeightTrendCard";
 import { DashboardSkeleton } from "@/components/dashboard/DashboardSkeleton";
+import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 
 interface DashboardData {
   date: string;
@@ -91,6 +92,8 @@ export default function DashboardPage() {
         </div>
         <StreakBadge days={data.streakDays} />
       </header>
+
+      <AlertsPanel />
 
       {/* Main ring + macros in a single card, responsive 2-col on wider screens */}
       <Card className="overflow-hidden">
