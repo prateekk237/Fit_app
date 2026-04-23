@@ -1,0 +1,107 @@
+[
+  {
+    "day_number": 1,
+    "name": "Push — Chest, Shoulders, Triceps",
+    "category": "push",
+    "duration_min": 45,
+    "description": "Upper-body push day. Emphasizes upper chest with decline push-up to fix puffy-chest look.",
+    "exercises_json": [
+      {"slug":"push-up-incline","sets":4,"reps":"8-12","rest_sec":90},
+      {"slug":"push-up-decline","sets":3,"reps":"6-10","rest_sec":90},
+      {"slug":"db-bench-press","sets":3,"reps":"10-12","rest_sec":90},
+      {"slug":"db-shoulder-press","sets":3,"reps":"10-12","rest_sec":90},
+      {"slug":"pike-push-up","sets":3,"reps":"8-12","rest_sec":75},
+      {"slug":"db-lateral-raise","sets":3,"reps":"12-15","rest_sec":60},
+      {"slug":"overhead-tricep-extension","sets":3,"reps":"10-12","rest_sec":60},
+      {"slug":"chair-dip","sets":2,"reps":"12-15","rest_sec":60}
+    ]
+  },
+  {
+    "day_number": 2,
+    "name": "Pull — Back, Rear Delts, Biceps",
+    "category": "pull",
+    "duration_min": 45,
+    "description": "Critical desk-worker day — band face-pulls reverse shoulder roll from sitting.",
+    "exercises_json": [
+      {"slug":"inverted-row","sets":4,"reps":"5-10","rest_sec":90},
+      {"slug":"bent-over-db-row","sets":4,"reps":"10-12","rest_sec":90},
+      {"slug":"single-arm-row","sets":3,"reps":"10-12/arm","rest_sec":75},
+      {"slug":"band-face-pull","sets":3,"reps":"15","rest_sec":45},
+      {"slug":"db-curl","sets":3,"reps":"10-12","rest_sec":60},
+      {"slug":"hammer-curl","sets":2,"reps":"12","rest_sec":60},
+      {"slug":"reverse-fly","sets":3,"reps":"12-15","rest_sec":45},
+      {"slug":"superman","sets":3,"reps":"20-30s hold","rest_sec":45}
+    ]
+  },
+  {
+    "day_number": 3,
+    "name": "Legs & Glutes",
+    "category": "legs",
+    "duration_min": 50,
+    "description": "Lower-body day. Box-squat chair if knee pain (start at 92 kg).",
+    "exercises_json": [
+      {"slug":"bw-squat","sets":4,"reps":"12-15","rest_sec":75},
+      {"slug":"goblet-squat","sets":3,"reps":"10-12","rest_sec":90},
+      {"slug":"walking-lunge","sets":3,"reps":"10/leg","rest_sec":75},
+      {"slug":"db-rdl","sets":3,"reps":"10-12","rest_sec":90},
+      {"slug":"glute-bridge","sets":3,"reps":"12-15","rest_sec":60},
+      {"slug":"calf-raise","sets":3,"reps":"15-20","rest_sec":45},
+      {"slug":"wall-sit","sets":2,"reps":"30-60s","rest_sec":60}
+    ]
+  },
+  {
+    "day_number": 4,
+    "name": "HIIT + Core",
+    "category": "hiit",
+    "duration_min": 25,
+    "description": "Tabata-style 20/10. Use 30/30 in weeks 1-2 to protect joints.",
+    "exercises_json": [
+      {"slug":"jumping-jack","sets":2,"reps":"20s on / 10s off × 4 rounds","rest_sec":60},
+      {"slug":"mountain-climber","sets":2,"reps":"20s on / 10s off × 4 rounds","rest_sec":60},
+      {"slug":"high-knees","sets":2,"reps":"20s on / 10s off × 4 rounds","rest_sec":60},
+      {"slug":"skater-jump","sets":2,"reps":"20s on / 10s off × 4 rounds","rest_sec":60},
+      {"slug":"dead-bug","sets":3,"reps":"10/side","rest_sec":45},
+      {"slug":"plank","sets":3,"reps":"30-60s","rest_sec":45},
+      {"slug":"side-plank","sets":2,"reps":"20-40s/side","rest_sec":45},
+      {"slug":"bird-dog","sets":3,"reps":"10/side","rest_sec":45},
+      {"slug":"bicycle-crunch","sets":3,"reps":"15/side","rest_sec":45}
+    ]
+  },
+  {
+    "day_number": 5,
+    "name": "Full Body Strength",
+    "category": "fullbody",
+    "duration_min": 45,
+    "description": "Compound-heavy day. DB thruster is a calorie-burner.",
+    "exercises_json": [
+      {"slug":"goblet-squat","sets":4,"reps":"10","rest_sec":90},
+      {"slug":"push-up","sets":4,"reps":"AMRAP-2","rest_sec":75},
+      {"slug":"single-arm-row","sets":4,"reps":"10/arm","rest_sec":75},
+      {"slug":"db-rdl","sets":3,"reps":"12","rest_sec":90},
+      {"slug":"db-thruster","sets":3,"reps":"10","rest_sec":90},
+      {"slug":"inverted-row","sets":3,"reps":"AMRAP","rest_sec":75},
+      {"slug":"plank","sets":3,"reps":"45-60s","rest_sec":45}
+    ]
+  },
+  {
+    "day_number": 6,
+    "name": "Cardio + Mobility",
+    "category": "cardio",
+    "duration_min": 60,
+    "description": "Pick one low-impact option. At 92 kg: WALK — do not run — for weeks 1-6.",
+    "exercises_json": [
+      {"slug":"running-in-place","sets":1,"reps":"45 min brisk walk OR 10×(1 min rope + 30s rest) OR 10×2 min shadow box","rest_sec":0},
+      {"slug":"jumping-rope","sets":10,"reps":"1 min","rest_sec":30},
+      {"slug":"shadow-boxing","sets":10,"reps":"2 min rounds","rest_sec":60},
+      {"slug":"plank","sets":3,"reps":"45s","rest_sec":45}
+    ]
+  },
+  {
+    "day_number": 7,
+    "name": "Rest / Active Recovery",
+    "category": "rest",
+    "duration_min": 30,
+    "description": "20-30 min gentle walk, full-body stretch, 8 hrs sleep.",
+    "exercises_json": []
+  }
+]
