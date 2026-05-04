@@ -9,6 +9,9 @@ import { getLocalDateUTC } from "@/lib/time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Vercel Hobby caps function duration at 10s. The AI fallback chain
+// keeps us under that even if NIM Maverick times out at 8s.
+export const maxDuration = 10;
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB hard cap before sharp compression
 

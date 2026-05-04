@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { AUTH_COOKIE, verifySession } from "@/lib/auth-edge";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/health"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/api/auth/login",
+  "/api/health",
+  // Cron endpoints carry their own Bearer-token check.
+  "/api/cron",
+];
 
 function isPublic(pathname: string): boolean {
   if (

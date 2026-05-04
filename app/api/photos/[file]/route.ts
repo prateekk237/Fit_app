@@ -13,11 +13,11 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const buf = await readPhoto(params.file);
-    return new Response(new Uint8Array(buf), {
+    const { body, contentType } = await readPhoto(params.file);
+    return new Response(new Uint8Array(body), {
       status: 200,
       headers: {
-        "Content-Type": "image/jpeg",
+        "Content-Type": contentType,
         "Cache-Control": "private, max-age=3600",
       },
     });

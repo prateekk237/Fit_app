@@ -1,8 +1,14 @@
 /**
- * Public analyser. Tries NIM → Groq → Gemini with exponential-backoff
- * retry inside each provider, then falls through to the next on 429/5xx.
- * If nothing is configured, returns a mock response so dev/test flows
- * still round-trip end-to-end.
+ * Public analyser. Tries NIM → Groq → Gemini with a TIGHT per-provider
+ * timeout so we stay under Vercel Hobby's 10s function budget. Failure
+ * (timeout, 429, 5xx, schema mismatch) cascades immediately to the next
+ * provider — no in-provider backoff. Mock fallback when no key is set.
+ *
+ * Time budget per provider (must sum to < 10s including a safety pad):
+ *   NIM Maverick   8s
+ *   Groq Scout     7s
+ *   Gemini Flash   6s
+ * Worst case: NIM timeout (8s) → Groq still has 1.8s left in budget.
  */
 import { PROVIDERS, isRetryable, type ProviderName } from "./providers";
 import { foodAnalysisZod, type FoodAnalysis } from "./schema";
@@ -13,6 +19,14 @@ export interface AnalyzeOutcome {
   attempts: Array<{ provider: ProviderName; error?: string }>;
   durationMs: number;
 }
+
+const TIMEOUTS_MS: Partial<Record<ProviderName, number>> = {
+  "nvidia-nim": 8000,
+  groq: 7000,
+  gemini: 6000,
+  openrouter: 6000,
+  mock: 1000,
+};
 
 export async function analyzeFoodPhoto(buffer: Buffer): Promise<AnalyzeOutcome> {
   const started = Date.now();
@@ -32,15 +46,20 @@ export async function analyzeFoodPhoto(buffer: Buffer): Promise<AnalyzeOutcome> 
   }
 
   for (const provider of active) {
+    const budget = TIMEOUTS_MS[provider.name] ?? 6000;
     try {
-      const result = await runWithBackoff(() => provider.analyze(buffer));
+      const result = await callWithTimeout(() => provider.analyze(buffer), budget);
       attempts.push({ provider: provider.name });
       return { result, provider: provider.name, attempts, durationMs: Date.now() - started };
     } catch (err) {
       const message = (err as Error).message ?? String(err);
       attempts.push({ provider: provider.name, error: message });
-      // Keep going only for retryable errors; fatal errors abort.
-      if (!isRetryable(err) && !/schema|JSON|Empty AI|timeout/i.test(message)) {
+      // Cascade on timeout / retryable / schema errors. Bubble auth/quota
+      // failures unchanged so the caller can surface them properly.
+      if (
+        !isRetryable(err) &&
+        !/schema|JSON|Empty AI|timeout/i.test(message)
+      ) {
         break;
       }
     }
@@ -52,23 +71,19 @@ export async function analyzeFoodPhoto(buffer: Buffer): Promise<AnalyzeOutcome> 
   });
 }
 
-async function runWithBackoff<T>(
-  fn: () => Promise<T>,
-  maxRetries = 2,
-  baseMs = 500,
-): Promise<T> {
-  let lastErr: unknown;
-  for (let i = 0; i <= maxRetries; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      if (!isRetryable(err) || i === maxRetries) throw err;
-      const delay = baseMs * Math.pow(2, i); // 500, 1000, 2000
-      await new Promise((r) => setTimeout(r, delay));
-    }
+/** Promise.race timeout helper. */
+async function callWithTimeout<T>(fn: () => Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race<T>([
+      fn(),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  throw lastErr;
 }
 
 /**

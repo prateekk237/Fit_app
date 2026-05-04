@@ -1,196 +1,148 @@
-# Fit — VPS Deployment Runbook
+# Fit — Deployment
 
-Single-user PWA deployed on Hostinger KVM 1 (4 GB / 2 vCPU) alongside
-AssetShield. Coexistence is non-negotiable — AssetShield ranks above Fit.
+Two supported targets, pick one:
 
-## Resource budget (hard)
+- **Vercel + Neon + R2 (recommended, ₹0/mo)** — see below.
+- **Hostinger VPS Docker** — see [`DEPLOY-VPS.md`](./DEPLOY-VPS.md).
 
-| Component | RAM cap | CPU |
+---
+
+# Vercel + Neon + Cloudflare R2
+
+| Layer | Service | Free tier headroom |
 | --- | --- | --- |
-| `fit-app` (Next.js standalone) | 500 MB | 0.7 |
-| `fit-postgres` (Postgres 16-alpine) | 250 MB | 0.5 |
-| **Total Fit** | **≤ 750 MB** | — |
+| Hosting | Vercel Hobby | 100 GB bandwidth, 100 GB-hr functions |
+| Database | Neon Postgres (Singapore) | 0.5 GB, auto-pauses 5 min idle |
+| Image storage | Cloudflare R2 | 10 GB, free egress |
+| Cron | cron-job.org | unlimited HTTP triggers |
+| AI | NVIDIA NIM + Groq + Gemini fallback | 40 / 30 / 10 RPM |
 
-Both containers carry `oom_score_adj: 500` — the kernel kills Fit first
-if RAM pressure hits.
+Total: **₹0/month** with **zero AssetShield risk** (fully isolated).
 
-## Ports (127.0.0.1 only)
+---
 
-| Service | Port | Bind |
+## 0. Pre-reqs
+
+- GitHub repo pushed up to date
+- A NIM API key (https://build.nvidia.com)
+- (Optional) Groq + Gemini keys for fallback resilience
+
+## 1. Neon Postgres — 10 min
+
+1. Sign in at https://neon.tech with GitHub.
+2. **Create project**: `fit-pwa`, Postgres 16, region **Singapore (sin-1)**, db `fitdb`.
+3. Copy the connection string. Append `&connect_timeout=10&pool_timeout=10` for graceful resume.
+4. From your laptop with that string in `.env.local`:
+
+   ```bash
+   pnpm prisma migrate deploy
+   pnpm prisma db seed
+   ```
+
+5. Verify in Neon SQL Editor: `SELECT COUNT(*) FROM foods;` → `120`.
+
+## 2. Cloudflare R2 — 10 min
+
+1. Sign up at https://cloudflare.com.
+2. **R2 → Create bucket** `fit-uploads`, region **APAC**.
+3. **Manage R2 API Tokens → Create**: name `fit-pwa-token`, scope **Object Read & Write** to `fit-uploads`. Capture `Access Key ID`, `Secret`, `Account ID`.
+4. **Bucket settings → Public Access → Allow access via custom subdomain** (the app uses an auth-gated proxy route, but R2's public URL keeps things simple). Capture `R2_PUBLIC_URL`.
+
+## 3. Vercel — 15 min
+
+1. Sign up at https://vercel.com with GitHub.
+2. **Add New Project** → import this repo. Framework auto-detects Next.js. Default build/install commands.
+3. **Settings → Environment Variables** (Production):
+
+   ```
+   DATABASE_URL              postgresql://…neon.tech/fitdb?sslmode=require&connect_timeout=10
+   JWT_SECRET                <openssl rand -base64 48>
+   NVIDIA_API_KEY            nvapi-…
+   GROQ_API_KEY              gsk_…              (optional)
+   GEMINI_API_KEY            AIza…              (optional)
+   VAPID_PUBLIC_KEY          <web-push generate>
+   VAPID_PRIVATE_KEY         <web-push generate>
+   VAPID_SUBJECT             mailto:you@example.com
+   NEXT_PUBLIC_VAPID_PUBLIC_KEY  <same as VAPID_PUBLIC_KEY>
+   R2_ACCOUNT_ID             …
+   R2_ACCESS_KEY_ID          …
+   R2_SECRET_ACCESS_KEY      …
+   R2_BUCKET_NAME            fit-uploads
+   R2_PUBLIC_URL             https://pub-xxx.r2.dev
+   CRON_SECRET               <openssl rand -base64 32>
+   NEXT_PUBLIC_APP_URL       https://fit-yourname.vercel.app
+   FIT_ENABLE_CRON           false
+   ```
+
+4. **Deploy.** Get the auto-assigned `*.vercel.app` URL.
+5. Optional custom domain: **Settings → Domains → Add `fit.assetshield.co.in`** → add the CNAME Vercel gives you in Cloudflare DNS. SSL auto-provisions.
+
+## 4. cron-job.org — 5 min
+
+Sign up at https://cron-job.org. Three jobs, all method `GET` with custom header `Authorization: Bearer <CRON_SECRET>`:
+
+| Job | URL | Schedule |
 | --- | --- | --- |
-| fit-app | 3100 | 127.0.0.1 |
-| fit-postgres | 5433 | 127.0.0.1 |
-| Public subdomain | `fit.assetshield.co.in` | via host Nginx → 3100 |
+| `fit-alerts` | `https://<app>/api/cron/alerts` | every 15 min |
+| `fit-weekly` | `https://<app>/api/cron/weekly-digest` | Sun 21:00 Asia/Kolkata |
+| `fit-keepalive` | `https://<app>/api/cron/keepalive` | every 4 min, 07:00–23:00 IST |
 
-AssetShield's existing ports (3000 / 4000 / 5432 / 1883 / 8883) are
-untouched.
+Test each job once via the "Run now" button — execution log should report `200 OK`.
 
----
+## 5. Smoke test from your phone — 5 min
 
-## First-time setup (~ 60 min)
-
-### 1. Baseline audit
-
-```bash
-ssh deploy@<VPS_IP>
-mkdir -p /home/deploy/apps/fit/{backups,logs}
-cd /home/deploy/apps/fit
-bash scripts/deploy/audit-pre-fit.sh   # aborts if ports busy, RAM low, AssetShield sick
-```
-
-Snapshot is saved under `~/fit-deployment/snapshots/<timestamp>/`.
-
-### 2. Upload deploy assets
-
-From your laptop (or via git clone on the VPS):
-
-```bash
-scp docker-compose.prod.yml  deploy@VPS:/home/deploy/apps/fit/
-scp scripts/deploy/*.sh      deploy@VPS:/home/deploy/apps/fit/
-scp deploy/nginx-fit.conf    deploy@VPS:/tmp/
-```
-
-### 3. Environment file
-
-Create `/home/deploy/apps/fit/.env.production` (chmod 600):
-
-```env
-GITHUB_USER=<your-github-username>
-IMAGE_TAG=latest
-
-POSTGRES_USER=fit
-POSTGRES_PASSWORD=<long random password>
-POSTGRES_DB=fit
-
-JWT_SECRET=<openssl rand -hex 32>
-
-NVIDIA_API_KEY=nvapi-…
-GROQ_API_KEY=
-GEMINI_API_KEY=
-
-VAPID_PUBLIC_KEY=<npx web-push generate-vapid-keys — public>
-VAPID_PRIVATE_KEY=<… private>
-VAPID_SUBJECT=mailto:you@example.com
-```
-
-### 4. DNS
-
-In Cloudflare / your registrar:
-
-- A record `fit.assetshield.co.in` → VPS_IP
-- Proxy **off** (grey cloud) during setup — turn on later if desired
-- TTL 300
-
-### 5. TLS cert
-
-```bash
-sudo certbot certonly --nginx -d fit.assetshield.co.in \
-  --non-interactive --agree-tos -m assetshieldsupport@gmail.com
-```
-
-### 6. Nginx
-
-```bash
-sudo cp /tmp/nginx-fit.conf /etc/nginx/sites-available/fit.assetshield.co.in
-sudo ln -s /etc/nginx/sites-available/fit.assetshield.co.in /etc/nginx/sites-enabled/
-sudo nginx -t                 # MUST pass
-sudo systemctl reload nginx
-curl -sI https://assetshield.co.in | head -1   # must still be 200/301/302
-```
-
-### 7. Watchdog cron
-
-```bash
-chmod +x /home/deploy/apps/fit/watchdog.sh
-sudo touch /var/log/fit-watchdog.log
-sudo chown deploy:deploy /var/log/fit-watchdog.log
-crontab -e
-# Add this line:
-* * * * * /home/deploy/apps/fit/watchdog.sh
-```
-
-### 8. Pull the image, start services
-
-```bash
-cd /home/deploy/apps/fit
-
-# Login to GHCR with a personal access token (read:packages).
-echo <GHCR_PAT> | docker login ghcr.io -u <github-user> --password-stdin
-
-set -o allexport && source .env.production && set +o allexport
-
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d fit-postgres
-sleep 20
-free -h
-
-docker compose -f docker-compose.prod.yml run --rm fit-migrate
-docker compose -f docker-compose.prod.yml up -d fit-app
-
-curl http://127.0.0.1:3100/api/health
-docker stats --no-stream
-```
-
-### 9. End-to-end smoke from phone
-
-- Open `https://fit.assetshield.co.in`
-- Log in with PIN `123456`, change to your preference in Profile
-- Take a food photo → confirm the AI pipeline returns JSON
-- Install to home screen (Samsung Z Fold 7 Chrome menu → "Install app")
-- Enable notifications → verify a push arrives (e.g. via manual
-  `POST /api/alerts/evaluate`)
-
-### 10. Monitor first 24 hours
-
-```bash
-tail -f /var/log/fit-watchdog.log
-docker compose -f docker-compose.prod.yml logs -f
-```
+1. Open the Vercel URL.
+2. Login with PIN `123456`. Change it under Profile → Security.
+3. Take a food photo → confirm AI returns real items (not `provider: "mock"`).
+4. Chrome menu → **Install app** → Fit appears full-screen on the home screen.
+5. Enable notifications when prompted; trigger a test push by hitting `POST /api/alerts/evaluate` with the session cookie (or wait 15 min for the cron tick).
+6. Add a weight log → confirm the dashboard ring + weight trend update.
 
 ---
 
-## CI/CD after first deploy
+## What changes vs. local dev
 
-Pushes to `main` trigger `.github/workflows/deploy.yml` which:
+The same code runs in both places. Behaviour switches based on env presence:
 
-1. Builds the image on GitHub Actions runners (never on the VPS).
-2. Pushes to `ghcr.io/<owner>/fit-pwa:{latest,sha-<sha>}`.
-3. SSH into VPS, runs `audit-pre-fit`-style checks inline, pulls the
-   new image, runs migrations, swaps `fit-app`, health-polls.
-4. Verifies both `https://assetshield.co.in` **and**
-   `https://fit.assetshield.co.in` still return 200 / 301 / 302.
+| Env var | Effect |
+| --- | --- |
+| `R2_BUCKET_NAME` set | Photos go to R2; otherwise saved to `./uploads/` |
+| `CRON_SECRET` set | `/api/cron/*` accepts cron-job.org pings |
+| `FIT_ENABLE_CRON=true` | Run node-cron in-process (Hostinger VPS only) |
 
-GitHub secrets required: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`.
-`GITHUB_TOKEN` is auto-provided.
+## Free-tier guard rails baked in
 
----
-
-## Emergency rollback (30 s)
-
-```bash
-cd /home/deploy/apps/fit
-docker compose -f docker-compose.prod.yml down
-sudo rm /etc/nginx/sites-enabled/fit.assetshield.co.in
-sudo nginx -t && sudo systemctl reload nginx
-curl -I https://assetshield.co.in
-```
-
-AssetShield is restored; Fit is offline until you fix and re-deploy.
+- AI photo route: `maxDuration = 10` + per-provider Promise.race timeouts (NIM 8 s → Groq 7 s → Gemini 6 s). Worst case still finishes inside Vercel's 10 s budget.
+- Storage: R2 Class B reads cached for 7 days client-side via the SW (`fit-photos` cache).
+- Neon: keepalive cron (4 min during waking hours) avoids cold-pause stalls on the first food log.
+- Web Push: VAPID-signed payloads; the SW handler that landed in Phase 12 is environment-agnostic — works identically on Vercel.
 
 ---
 
-## KVM 1 tradeoffs accepted
+## Emergency rollback
 
-- NIM photo analysis may 5–10 % fail on first try → the fallback chain
-  (Groq / Gemini) handles it automatically.
-- Cold start ~ 40 s (vs ~ 15 s on KVM 2).
-- No Redis → food search hits Postgres every time (fine for 1 user).
-- Watchdog may auto-stop Fit during AssetShield traffic spikes —
-  that's working as designed.
+Vercel keeps every deployment. **Project → Deployments → previous green one → "Promote to Production"**. Takes ~10 s. Or revert the offending commit on `main` and push — auto-redeploys.
 
-### Upgrade to KVM 2 if
+For DNS cutover: in Cloudflare DNS, delete the `fit` CNAME — the subdomain stops resolving, AssetShield is unaffected.
 
-- Watchdog stops Fit ≥ 3 times/week (check `/var/log/fit-watchdog.log`)
-- AssetShield RAM steady > 2.5 GB
-- A second user is added
-- Redis caching becomes necessary
+---
+
+## Trade-offs accepted
+
+| What | Mitigation |
+| --- | --- |
+| 200–400 ms latency to India (US/EU edge) | Static pages cached by SW; only API calls feel it |
+| 3–5 s cold start on idle DB | `keepalive` cron during waking hours |
+| ~2 % photo failures (provider chain still timing out) | Toast "Try again" UX in Phase 6 already covers this |
+| Vercel commercial-use email (single user, unlikely) | Switch to `DEPLOY-VPS.md` if it ever happens |
+
+---
+
+## When to migrate to the Hostinger VPS plan
+
+- 2nd user added (family / friend)
+- Heavy continuous use (alerts firing 50+ times/day)
+- Vercel free-tier limit hit
+- You want sub-100 ms latency from India
+
+Both deployment plans use the same source tree — pivoting takes the runbook in `DEPLOY-VPS.md` and changing `R2_*` to `UPLOADS_DIR=/var/fit/uploads` in env. No code changes.
