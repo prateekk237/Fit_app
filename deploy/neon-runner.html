@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Fit — Neon bootstrap</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 1.25rem;
+      line-height: 1.45;
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 0.5rem; }
+    p  { color: #475569; font-size: 0.95rem; }
+    label { display: block; margin: 1rem 0 0.4rem; font-size: 0.85rem; font-weight: 600; }
+    input, button {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.75rem 0.9rem;
+      font: inherit;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+    }
+    button {
+      margin-top: 0.8rem;
+      background: #6366f1;
+      color: white;
+      border: 0;
+      font-weight: 600;
+      font-size: 1rem;
+    }
+    button:disabled { opacity: 0.5; }
+    pre {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 0.9rem;
+      max-height: 60vh;
+      overflow: auto;
+      font-size: 0.78rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin-top: 1rem;
+    }
+    .ok { color: #047857; }
+    .err { color: #b91c1c; }
+    .muted { color: #64748b; font-size: 0.78rem; margin-top: 1.2rem; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #0f172a; color: #e2e8f0; }
+      input { background: #1e293b; color: #e2e8f0; border-color: #334155; }
+      pre { background: #1e293b; border-color: #334155; }
+      p, .muted { color: #94a3b8; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Fit — Neon bootstrap runner</h1>
+  <p>
+    Pastes the schema + 240 seed rows (foods / exercises / meals / workouts /
+    Prateek user) into your Neon database. Runs entirely in this browser tab —
+    your connection string never leaves the device.
+  </p>
+
+  <label for="connstr">Neon connection string</label>
+  <input
+    id="connstr"
+    type="password"
+    autocomplete="off"
+    autocapitalize="none"
+    spellcheck="false"
+    placeholder="postgresql://user:pass@ep-xxx.aws.neon.tech/neondb?sslmode=require" />
+
+  <label for="branch">Source branch (defaults to claude/fit-pwa-build-P4bp3)</label>
+  <input id="branch" type="text" value="claude/fit-pwa-build-P4bp3" />
+
+  <button id="run" type="button">Run bootstrap.sql</button>
+
+  <pre id="log">Logs appear here after you tap Run.</pre>
+
+  <p class="muted">
+    Stuck? Open the SQL editor at <code>console.neon.tech</code> and paste
+    <code>deploy/neon-bootstrap.sql</code> manually instead.
+  </p>
+
+<script>
+const logEl = document.getElementById("log");
+function log(msg, cls) {
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = (logEl.textContent ? "\n" : "") + msg;
+  if (logEl.textContent === "Logs appear here after you tap Run.") logEl.textContent = "";
+  logEl.appendChild(span);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+/** Send a single SQL statement to Neon's HTTP /sql endpoint. */
+async function execOne(connstr, sql) {
+  const url = new URL(connstr);
+  const host = url.hostname;
+  const r = await fetch("https://" + host + "/sql", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Neon-Connection-String": connstr,
+    },
+    body: JSON.stringify({
+      query: sql,
+      params: [],
+      arrayMode: false,
+      fullResults: false,
+    }),
+  });
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    const err = new Error("HTTP " + r.status + ": " + txt.slice(0, 200));
+    err.status = r.status;
+    throw err;
+  }
+  return r.json();
+}
+
+/**
+ * Split bootstrap.sql into individual statements.
+ * - Strips single-line `-- comments` (keeping the rest of the line).
+ * - Splits on `;` followed by newline. Our bootstrap has no semicolons
+ *   inside string literals so this is safe.
+ */
+function splitSql(text) {
+  const lines = text.split("\n").map((l) => {
+    const idx = l.indexOf("--");
+    return idx >= 0 ? l.slice(0, idx) : l;
+  });
+  return lines
+    .join("\n")
+    .split(/;[\s\r\n]*\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+document.getElementById("run").addEventListener("click", async () => {
+  const btn = document.getElementById("run");
+  btn.disabled = true;
+  logEl.textContent = "";
+
+  try {
+    const connstr = document.getElementById("connstr").value.trim();
+    const branch = document.getElementById("branch").value.trim() || "main";
+    if (!connstr.startsWith("postgresql://") && !connstr.startsWith("postgres://")) {
+      log("Connection string must start with postgresql://", "err");
+      return;
+    }
+
+    log("→ Fetching bootstrap SQL from GitHub…");
+    const sqlUrl =
+      "https://raw.githubusercontent.com/prateekk237/Fit_app/" +
+      encodeURIComponent(branch) +
+      "/deploy/neon-bootstrap.sql";
+    const r = await fetch(sqlUrl);
+    if (!r.ok) {
+      log("Couldn't fetch the SQL: HTTP " + r.status, "err");
+      return;
+    }
+    const sqlText = await r.text();
+    log("✓ Fetched " + (sqlText.length / 1024).toFixed(1) + " KB", "ok");
+
+    const stmts = splitSql(sqlText);
+    log("→ Split into " + stmts.length + " statements. Running…");
+
+    let ok = 0;
+    let fail = 0;
+    const failures = [];
+    const t0 = Date.now();
+    for (let i = 0; i < stmts.length; i++) {
+      try {
+        await execOne(connstr, stmts[i]);
+        ok++;
+        if ((i + 1) % 50 === 0) {
+          log("  " + (i + 1) + "/" + stmts.length + "…");
+        }
+      } catch (err) {
+        fail++;
+        failures.push({ idx: i, sql: stmts[i].slice(0, 80), err: err.message });
+        if (fail <= 3) {
+          log("  ✗ stmt " + (i + 1) + ": " + err.message, "err");
+        }
+      }
+    }
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    log("\nResult: " + ok + " ok, " + fail + " failed, " + elapsed + "s");
+
+    if (fail > 0) {
+      log("First failing statements:");
+      for (const f of failures.slice(0, 3)) {
+        log("  #" + (f.idx + 1) + " " + f.sql + "…");
+      }
+    }
+
+    log("\n→ Verifying counts…");
+    try {
+      const r = await execOne(
+        connstr,
+        "SELECT " +
+          "(SELECT count(*) FROM foods) AS foods, " +
+          "(SELECT count(*) FROM exercises) AS exercises, " +
+          "(SELECT count(*) FROM meals) AS meals, " +
+          "(SELECT count(*) FROM workouts) AS workouts, " +
+          "(SELECT count(*) FROM users) AS users",
+      );
+      const row = (r.rows && r.rows[0]) || r[0] || {};
+      log(
+        "foods=" + row.foods +
+          ", exercises=" + row.exercises +
+          ", meals=" + row.meals +
+          ", workouts=" + row.workouts +
+          ", users=" + row.users,
+        row.foods === 120 ? "ok" : "err",
+      );
+      if (row.foods === 120 && row.exercises === 50 && row.meals === 63 && row.workouts === 7 && row.users === 1) {
+        log("\n✅ Bootstrap complete. You can close this tab.", "ok");
+      }
+    } catch (err) {
+      log("Verify failed: " + err.message, "err");
+    }
+  } catch (err) {
+    log("Fatal: " + (err && err.message ? err.message : String(err)), "err");
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
