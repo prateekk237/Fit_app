@@ -77,7 +77,7 @@
   <label for="branch">Source branch (defaults to claude/fit-pwa-build-P4bp3)</label>
   <input id="branch" type="text" value="claude/fit-pwa-build-P4bp3" />
 
-  <button id="run" type="button">Run bootstrap.sql</button>
+  <button id="run" type="button" disabled>Loading driver…</button>
 
   <pre id="log">Logs appear here after you tap Run.</pre>
 
@@ -86,48 +86,27 @@
     <code>deploy/neon-bootstrap.sql</code> manually instead.
   </p>
 
-<script>
+<script type="module">
+import { neon } from "https://esm.sh/@neondatabase/serverless@0.10.4";
+
 const logEl = document.getElementById("log");
+const btn = document.getElementById("run");
+
 function log(msg, cls) {
+  if (logEl.textContent === "Logs appear here after you tap Run.") logEl.textContent = "";
   const span = document.createElement("span");
   if (cls) span.className = cls;
   span.textContent = (logEl.textContent ? "\n" : "") + msg;
-  if (logEl.textContent === "Logs appear here after you tap Run.") logEl.textContent = "";
   logEl.appendChild(span);
   logEl.scrollTop = logEl.scrollHeight;
-}
-
-/** Send a single SQL statement to Neon's HTTP /sql endpoint. */
-async function execOne(connstr, sql) {
-  const url = new URL(connstr);
-  const host = url.hostname;
-  const r = await fetch("https://" + host + "/sql", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Neon-Connection-String": connstr,
-    },
-    body: JSON.stringify({
-      query: sql,
-      params: [],
-      arrayMode: false,
-      fullResults: false,
-    }),
-  });
-  if (!r.ok) {
-    const txt = await r.text().catch(() => "");
-    const err = new Error("HTTP " + r.status + ": " + txt.slice(0, 200));
-    err.status = r.status;
-    throw err;
-  }
-  return r.json();
+  console.log(msg);
 }
 
 /**
  * Split bootstrap.sql into individual statements.
- * - Strips single-line `-- comments` (keeping the rest of the line).
- * - Splits on `;` followed by newline. Our bootstrap has no semicolons
- *   inside string literals so this is safe.
+ *  - Strips inline `-- comments` on each line.
+ *  - Splits on `;` followed by newline.
+ * Our generated SQL contains no `;` inside string literals so this is safe.
  */
 function splitSql(text) {
   const lines = text.split("\n").map((l) => {
@@ -141,8 +120,10 @@ function splitSql(text) {
     .filter(Boolean);
 }
 
-document.getElementById("run").addEventListener("click", async () => {
-  const btn = document.getElementById("run");
+btn.disabled = false;
+btn.textContent = "Run bootstrap.sql";
+
+btn.addEventListener("click", async () => {
   btn.disabled = true;
   logEl.textContent = "";
 
@@ -159,7 +140,7 @@ document.getElementById("run").addEventListener("click", async () => {
       "https://raw.githubusercontent.com/prateekk237/Fit_app/" +
       encodeURIComponent(branch) +
       "/deploy/neon-bootstrap.sql";
-    const r = await fetch(sqlUrl);
+    const r = await fetch(sqlUrl, { mode: "cors" });
     if (!r.ok) {
       log("Couldn't fetch the SQL: HTTP " + r.status, "err");
       return;
@@ -170,20 +151,26 @@ document.getElementById("run").addEventListener("click", async () => {
     const stmts = splitSql(sqlText);
     log("→ Split into " + stmts.length + " statements. Running…");
 
+    // Use the official @neondatabase/serverless driver — it knows the
+    // exact HTTP protocol Neon expects (CORS, headers, auth).
+    const sql = neon(connstr);
+
     let ok = 0;
     let fail = 0;
     const failures = [];
     const t0 = Date.now();
     for (let i = 0; i < stmts.length; i++) {
       try {
-        await execOne(connstr, stmts[i]);
+        // sql.query(text) executes raw SQL. The driver handles CORS +
+        // auth headers correctly.
+        await sql.query(stmts[i]);
         ok++;
         if ((i + 1) % 50 === 0) {
           log("  " + (i + 1) + "/" + stmts.length + "…");
         }
       } catch (err) {
         fail++;
-        failures.push({ idx: i, sql: stmts[i].slice(0, 80), err: err.message });
+        failures.push({ idx: i, sql: stmts[i].slice(0, 100), err: err.message });
         if (fail <= 3) {
           log("  ✗ stmt " + (i + 1) + ": " + err.message, "err");
         }
@@ -192,17 +179,16 @@ document.getElementById("run").addEventListener("click", async () => {
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     log("\nResult: " + ok + " ok, " + fail + " failed, " + elapsed + "s");
 
-    if (fail > 0) {
+    if (fail > 0 && failures.length) {
       log("First failing statements:");
       for (const f of failures.slice(0, 3)) {
-        log("  #" + (f.idx + 1) + " " + f.sql + "…");
+        log("  #" + (f.idx + 1) + " " + f.sql.replace(/\s+/g, " ") + "…");
       }
     }
 
     log("\n→ Verifying counts…");
     try {
-      const r = await execOne(
-        connstr,
+      const rows = await sql.query(
         "SELECT " +
           "(SELECT count(*) FROM foods) AS foods, " +
           "(SELECT count(*) FROM exercises) AS exercises, " +
@@ -210,18 +196,22 @@ document.getElementById("run").addEventListener("click", async () => {
           "(SELECT count(*) FROM workouts) AS workouts, " +
           "(SELECT count(*) FROM users) AS users",
       );
-      const row = (r.rows && r.rows[0]) || r[0] || {};
+      const row = (rows && rows[0]) || {};
+      const all =
+        Number(row.foods) === 120 &&
+        Number(row.exercises) === 50 &&
+        Number(row.meals) === 63 &&
+        Number(row.workouts) === 7 &&
+        Number(row.users) === 1;
       log(
         "foods=" + row.foods +
           ", exercises=" + row.exercises +
           ", meals=" + row.meals +
           ", workouts=" + row.workouts +
           ", users=" + row.users,
-        row.foods === 120 ? "ok" : "err",
+        all ? "ok" : "err",
       );
-      if (row.foods === 120 && row.exercises === 50 && row.meals === 63 && row.workouts === 7 && row.users === 1) {
-        log("\n✅ Bootstrap complete. You can close this tab.", "ok");
-      }
+      if (all) log("\n✅ Bootstrap complete. You can close this tab.", "ok");
     } catch (err) {
       log("Verify failed: " + err.message, "err");
     }
